@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -10,10 +8,31 @@ import MarketAnalysis from './market-analysis';
 import BusinessModel from './business-model';
 import Financials from './financials';
 import RiskAnalysis from './risk-analysis';
-import Chatbot from './chatbot';
+import FloatingChat from './floating-chat';
 import IssuesTab from './issues-tab';
 import InterviewInsights from './interview-insights';
-import { Briefcase, ShoppingCart, BarChart, Banknote, ShieldAlert, MessageCircle, SlidersHorizontal, Loader2, FileArchive, FileText, Video, Mic, Type, CalendarPlus, AlertTriangle, MessageSquareQuote } from 'lucide-react';
+import InvestmentDecision from './investment-decision';
+import { FactCheck } from "@/components/fact-check";
+import {
+    Briefcase,
+    ShoppingCart,
+    BarChart,
+    Banknote,
+    ShieldAlert,
+    MessageCircle,
+    SlidersHorizontal,
+    Loader2,
+    FileArchive,
+    FileText,
+    Video,
+    Mic,
+    Type,
+    CalendarPlus,
+    AlertTriangle,
+    MessageSquareQuote,
+    Handshake,
+    ShieldCheck
+} from 'lucide-react';
 import { Button } from './ui/button';
 import {
     Dialog,
@@ -65,6 +84,8 @@ export default function AnalysisDashboard({ analysisData: initialAnalysisData, s
     const [founderName, setFounderName] = useState('');
     const [founderEmail, setFounderEmail] = useState('');
     const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+    const [isGeneratingDecision, setIsGeneratingDecision] = useState(false);
+    const [investmentDecision, setInvestmentDecision] = useState<any>(null);
     const { toast } = useToast();
 
     useEffect(() => {
@@ -72,6 +93,44 @@ export default function AnalysisDashboard({ analysisData: initialAnalysisData, s
             setFounderName(initialAnalysisData.metadata.founder_names[0]);
         }
     }, [initialAnalysisData]);
+
+    // Poll for investment decision updates if not yet generated
+    useEffect(() => {
+        // Only poll if investment decision doesn't exist yet
+        if (analysisData?.investment_decision) {
+            return; // Already have it, no need to poll
+        }
+
+        const pollInterval = setInterval(async () => {
+            try {
+                const response = await authenticatedFetch(
+                    `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/deals/${startupId}`
+                );
+
+                if (response.ok) {
+                    const updatedData = await response.json();
+
+                    // If investment decision is now available, update state and stop polling
+                    if (updatedData.investment_decision) {
+                        console.log('Investment decision now available, updating...');
+                        setAnalysisData(updatedData);
+                        setInvestmentDecision(updatedData.investment_decision);
+                        clearInterval(pollInterval);
+
+                        toast({
+                            title: "Investment Decision Ready",
+                            description: "The investment decision has been generated.",
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error polling for updates:', error);
+            }
+        }, 10000); // Poll every 10 seconds
+
+        // Cleanup on unmount
+        return () => clearInterval(pollInterval);
+    }, [analysisData?.investment_decision, startupId, toast]);
 
     const defaultWeights = analysisData?.memo?.draft_v1?._weightage_used;
 
@@ -261,19 +320,98 @@ export default function AnalysisDashboard({ analysisData: initialAnalysisData, s
 
     const showIssuesTab = interview?.status !== 'completed' && interview?.issues && interview.issues.length > 0;
     const showInsightsTab = interview?.status === 'completed' && insights && Object.keys(insights).length > 0;
+    const hasInvestmentDecision = analysisData?.investment_decision || investmentDecision;
 
     const getTabListClassName = () => {
         const baseClass = 'grid w-full h-auto mb-6 grid-cols-2';
-        if (showIssuesTab) return `${baseClass} md:grid-cols-7`;
-        if (showInsightsTab) return `${baseClass} md:grid-cols-7`;
-        return `${baseClass} md:grid-cols-6`;
+        if (showIssuesTab) return `${baseClass} md:grid-cols-8`;
+        if (showInsightsTab) return `${baseClass} md:grid-cols-8`;
+        return `${baseClass} md:grid-cols-7`;
+    };
+
+    const handleGenerateInvestmentDecision = async () => {
+        setIsGeneratingDecision(true);
+        try {
+            const response = await authenticatedFetch(
+                `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/deals/${startupId}/investment-decision`,
+                { method: 'POST' }
+            );
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to generate investment decision.');
+            }
+
+            const decision = await response.json();
+            setInvestmentDecision(decision);
+
+            toast({
+                title: "Investment Decision Generated",
+                description: "The funding plan and milestones have been created successfully.",
+            });
+        } catch (error: any) {
+            console.error("Failed to generate investment decision", error);
+            toast({
+                variant: "destructive",
+                title: "Generation Failed",
+                description: error.message || "An unexpected error occurred.",
+            });
+        } finally {
+            setIsGeneratingDecision(false);
+        }
     };
 
     return (
         <div className="w-full animate-in fade-in-50 duration-500">
+            {/* Deal Cover Art Header */}
+            <div className="relative w-full h-48 md:h-64 rounded-xl overflow-hidden mb-6 group">
+                {analysisData.cover_image ? (
+                    <img
+                        src={analysisData.cover_image}
+                        alt="Deal Cover Art"
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                ) : (
+                    <div className="w-full h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600" />
+                )}
+
+                {/* Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex flex-col justify-end p-6">
+                    <div className="flex items-end justify-between">
+                        <div>
+                            <div className="flex items-center gap-2 mb-2">
+                                <Badge variant="secondary" className="bg-white/20 text-white hover:bg-white/30 backdrop-blur-sm border-none">
+                                    {analysisData.metadata.sector}
+                                </Badge>
+                            </div>
+                            <h1 className="text-3xl md:text-4xl font-bold text-white font-headline tracking-tight">
+                                {analysisData.metadata.company_name}
+                            </h1>
+                            <div className="flex items-center gap-2 text-sm text-white/80 mt-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+                                    <line x1="16" x2="16" y1="2" y2="6" />
+                                    <line x1="8" x2="8" y1="2" y2="6" />
+                                    <line x1="3" x2="21" y1="10" y2="10" />
+                                </svg>
+                                <span>
+                                    Created {new Date(analysisData.metadata.created_at).toLocaleDateString('en-US', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                    })}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    {/* Title can go here if needed */}
+                    {/* Title moved to header image */}
                 </div>
                 <div className="flex justify-end gap-4">
                     <Dialog>
@@ -431,14 +569,24 @@ export default function AnalysisDashboard({ analysisData: initialAnalysisData, s
                     <TabsTrigger value="market" className="h-12"><ShoppingCart className="mr-2" />Market</TabsTrigger>
                     <TabsTrigger value="model" className="h-12"><BarChart className="mr-2" />Business Model</TabsTrigger>
                     <TabsTrigger value="financials" className="h-12"><Banknote className="mr-2" />Financials</TabsTrigger>
-                    <TabsTrigger value="risks" className="h-12"><ShieldAlert className="mr-2" />Risks</TabsTrigger>
+                    {/* Hide Risk tab for fast mode */}
+                    {analysisData?.metadata?.processing_mode !== 'fast' && (
+                        <TabsTrigger value="risks" className="h-12"><ShieldAlert className="mr-2" />Risks</TabsTrigger>
+                    )}
                     {showIssuesTab && (
                         <TabsTrigger value="issues" className="h-12 text-destructive"><AlertTriangle className="mr-2" />Issues</TabsTrigger>
                     )}
                     {showInsightsTab && (
                         <TabsTrigger value="insights" className="h-12 text-primary"><MessageSquareQuote className="mr-2" />Insights</TabsTrigger>
                     )}
-                    <TabsTrigger value="chatbot" className="h-12"><MessageCircle className="mr-2" />Chatbot</TabsTrigger>
+                    {/* Hide Investment Decision tab for fast mode */}
+                    {analysisData?.metadata?.processing_mode !== 'fast' && (
+                        <TabsTrigger value="decision" className="h-12"><Handshake className="mr-2" />Fund Decision</TabsTrigger>
+                    )}
+                    {/* Fact Check Tab - Research Mode Only */}
+                    {analysisData?.metadata?.processing_mode !== 'fast' && (
+                        <TabsTrigger value="fact-check" className="h-12"><ShieldCheck className="mr-2" />Fact Check</TabsTrigger>
+                    )}
                 </TabsList>
                 <TabsContent value="overview">
                     {memo ? <CompanyOverview data={memo.company_overview} /> : <NoDataComponent onGenerateClick={() => setIsCustomizeDialogOpen(true)} />}
@@ -465,12 +613,30 @@ export default function AnalysisDashboard({ analysisData: initialAnalysisData, s
                         {insights ? <InterviewInsights insights={insights} /> : <NoDataComponent onGenerateClick={() => { }} />}
                     </TabsContent>
                 )}
-                <TabsContent value="chatbot">
-                    {memo ? <Chatbot analysisData={analysisData} /> : <NoDataComponent onGenerateClick={() => setIsCustomizeDialogOpen(true)} />}
+                <TabsContent value="decision">
+                    {hasInvestmentDecision ? (
+                        <InvestmentDecision data={investmentDecision || analysisData.investment_decision} />
+                    ) : memo ? (
+                        <div className="text-center py-20 border-2 border-dashed rounded-lg">
+                            <Handshake className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                            <h2 className="text-2xl font-headline font-semibold">Investment Decision Being Generated</h2>
+                            <p className="text-muted-foreground mt-2 max-w-md mx-auto">
+                                The funding plan automatically generates with your memo. Refresh if you don't see it yet.
+                            </p>
+                        </div>
+                    ) : (
+                        <NoDataComponent onGenerateClick={() => setIsCustomizeDialogOpen(true)} />
+                    )}
                 </TabsContent>
+                <TabsContent value="fact-check">
+                    <FactCheck dealId={startupId} existingData={analysisData.fact_check} />
+                </TabsContent>
+
             </Tabs>
-        </div>
+
+            {/* Floating Chat Widget */}
+            {memo && <FloatingChat analysisData={analysisData} />}
+        </div >
     );
 
 }
-

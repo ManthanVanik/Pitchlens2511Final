@@ -572,7 +572,7 @@ Be strict. Mark as irrelevant if:
             config=GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
-                max_output_tokens=200
+                max_output_tokens=5000
             )
         )
         
@@ -639,7 +639,7 @@ Examples:
             config=GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
-                max_output_tokens=500
+                max_output_tokens=5000
             )
         )
         
@@ -743,7 +743,7 @@ Response (acknowledgment + next question):
             contents=prompt,
             config=GenerateContentConfig(
                 temperature=0.8,
-                max_output_tokens=300
+                max_output_tokens=5000
             )
         )
         

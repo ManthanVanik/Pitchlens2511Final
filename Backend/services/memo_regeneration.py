@@ -57,6 +57,38 @@ async def regenerate_memo_with_interview(deal_id: str):
     
     print(f"✅ Memo updated successfully for deal {deal_id}")
     
+    # Regenerate investment decision with interview-enhanced memo
+    print(f"[{deal_id}] Regenerating investment decision with interview insights...")
+    try:
+        from services.investment_decision_service import generate_investment_decision
+        
+        # Get user_id from deal metadata
+        user_id = deal_data.get('metadata', {}).get('user_id', 'system')
+        
+        # Get extracted text for context
+        extracted_text = deal_data.get('extracted_text', {}).get('pitch_deck', {}).get('text', '')
+        
+        decision = await generate_investment_decision(
+            deal_id=deal_id,
+            memo=updated_memo,
+            extracted_text=extracted_text,
+            user_id=user_id
+        )
+        
+        # Convert Pydantic model to dict for Firestore
+        decision_dict = decision.dict() if hasattr(decision, 'dict') else decision
+        
+        deal_ref.update({
+            "investment_decision": decision_dict,
+            "metadata.investment_decision_generated_at": firestore.SERVER_TIMESTAMP
+        })
+        print(f"[{deal_id}] ✅ Investment decision regenerated with interview data!")
+    except Exception as e:
+        print(f"[{deal_id}] ⚠️ Failed to regenerate investment decision: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Don't fail memo update if investment decision fails
+    
     return updated_memo
 
 

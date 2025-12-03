@@ -7,12 +7,12 @@ import { TrendingUp, Scale, Newspaper, Target, Globe } from 'lucide-react';
 import Link from 'next/link';
 
 export default function MarketAnalysis({ data, publicData }: { data: MarketAnalysisType, publicData: PublicData }) {
-    const competitors = data.competitor_details || publicData.competitors;
+  const competitors = data.competitor_details || publicData.competitors;
   return (
     <div className="space-y-8">
       <Card>
         <CardHeader>
-          <CardTitle className="font-headline text-2xl flex items-center gap-3"><TrendingUp className="w-7 h-7 text-primary"/>Industry Size & Growth</CardTitle>
+          <CardTitle className="font-headline text-2xl flex items-center gap-3"><TrendingUp className="w-7 h-7 text-primary" />Industry Size & Growth</CardTitle>
           <CardDescription>{data.industry_size_and_growth.commentary}</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -23,37 +23,37 @@ export default function MarketAnalysis({ data, publicData }: { data: MarketAnaly
           </div>
           {data.industry_size_and_growth.serviceable_obtainable_market && (
             <div className="space-y-2 p-4 bg-secondary/50 rounded-lg">
-                <h4 className="font-semibold text-lg">{data.industry_size_and_growth.serviceable_obtainable_market.name} (SOM)</h4>
-                <p className="text-4xl font-bold font-headline text-primary">{data.industry_size_and_growth.serviceable_obtainable_market.value}</p>
-                <div className="flex flex-wrap gap-2 items-center">
+              <h4 className="font-semibold text-lg">{data.industry_size_and_growth.serviceable_obtainable_market.name} (SOM)</h4>
+              <p className="text-4xl font-bold font-headline text-primary">{data.industry_size_and_growth.serviceable_obtainable_market.value}</p>
+              <div className="flex flex-wrap gap-2 items-center">
                 <Badge variant="secondary">CAGR: {data.industry_size_and_growth.serviceable_obtainable_market.cagr}</Badge>
                 {data.industry_size_and_growth.serviceable_obtainable_market.projection && (
-                    <Badge variant="outline">Projection: {data.industry_size_and_growth.serviceable_obtainable_market.projection}</Badge>
+                  <Badge variant="outline">Projection: {data.industry_size_and_growth.serviceable_obtainable_market.projection}</Badge>
                 )}
-                </div>
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
-      
+
       {data.sub_segment_opportunities && data.sub_segment_opportunities.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="font-headline text-2xl flex items-center gap-3"><Target className="w-7 h-7 text-primary"/>Sub-segment Opportunities</CardTitle>
+            <CardTitle className="font-headline text-2xl flex items-center gap-3"><Target className="w-7 h-7 text-primary" />Sub-segment Opportunities</CardTitle>
           </CardHeader>
           <CardContent>
-              <ul className="list-disc list-inside text-muted-foreground">
-                  {data.sub_segment_opportunities.map((opp, i) => (
-                      <li key={i}>{opp}</li>
-                  ))}
-              </ul>
+            <ul className="list-disc list-inside text-muted-foreground">
+              {data.sub_segment_opportunities.map((opp, i) => (
+                <li key={i}>{opp}</li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
       )}
 
       {competitors && competitors.length > 0 && (
         <div>
-          <h2 className="font-headline text-2xl mb-4 flex items-center gap-3"><Scale className="w-7 h-7 text-primary"/>Competitor Details</h2>
+          <h2 className="font-headline text-2xl mb-4 flex items-center gap-3"><Scale className="w-7 h-7 text-primary" />Competitor Details</h2>
           <Card>
             <Table>
               <TableHeader>
@@ -100,7 +100,7 @@ export default function MarketAnalysis({ data, publicData }: { data: MarketAnaly
       {data.reports && data.reports.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="font-headline text-2xl flex items-center gap-3"><Newspaper className="w-7 h-7 text-primary"/>Market Reports</CardTitle>
+            <CardTitle className="font-headline text-2xl flex items-center gap-3"><Newspaper className="w-7 h-7 text-primary" />Market Reports</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {data.reports.map((report, i) => (
@@ -110,7 +110,7 @@ export default function MarketAnalysis({ data, publicData }: { data: MarketAnaly
                 <div className="flex items-center justify-between mt-3">
                   <Badge variant="secondary">{report.source_name}</Badge>
                   <Link href={report.source_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-1">
-                    <Globe className="w-3 h-3"/>
+                    <Globe className="w-3 h-3" />
                     Visit Source
                   </Link>
                 </div>

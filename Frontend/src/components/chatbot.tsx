@@ -5,7 +5,7 @@ import type { AnalysisData } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Send, User, Bot } from 'lucide-react';
+import { Loader2, Send, User, Bot, Trash2 } from 'lucide-react';
 import { ScrollArea } from './ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -16,23 +16,60 @@ type Message = {
   content: string;
 };
 
-export default function Chatbot({ analysisData }: { analysisData: AnalysisData }) {
+interface ChatbotProps {
+  analysisData: AnalysisData;
+  onClearChat?: () => void;
+}
+
+export default function Chatbot({ analysisData, onClearChat }: ChatbotProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const dealId = analysisData.metadata.deal_id;
 
-  // Initial greeting
+  // Load chat history from localStorage on mount
   useEffect(() => {
-    if (messages.length === 0) {
-      setMessages([
-        {
-          role: 'model',
-          content: `Hello! I've analyzed the pitch deck for **${analysisData.metadata.company_name}**. I can answer questions about their business model, market, team, or financials based on the deck and my research. What would you like to know?`
-        }
-      ]);
+    const storageKey = `chat_history_${dealId}`;
+    const savedMessages = localStorage.getItem(storageKey);
+
+    if (savedMessages) {
+      try {
+        setMessages(JSON.parse(savedMessages));
+      } catch (e) {
+        console.error('Failed to parse saved messages', e);
+        // Initialize with greeting if parse fails
+        initializeChat();
+      }
+    } else {
+      // Initialize with greeting if no saved messages
+      initializeChat();
     }
-  }, [analysisData, messages.length]);
+  }, [dealId]);
+
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      const storageKey = `chat_history_${dealId}`;
+      localStorage.setItem(storageKey, JSON.stringify(messages));
+    }
+  }, [messages, dealId]);
+
+  const initializeChat = () => {
+    setMessages([
+      {
+        role: 'model',
+        content: `Hello! I've analyzed the pitch deck for **${analysisData.metadata.company_name}**. I can answer questions about their business model, market, team, or financials based on the deck and my research. What would you like to know?`
+      }
+    ]);
+  };
+
+  const clearChat = () => {
+    const storageKey = `chat_history_${dealId}`;
+    localStorage.removeItem(storageKey);
+    initializeChat();
+    if (onClearChat) onClearChat();
+  };
 
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -49,6 +86,11 @@ export default function Chatbot({ analysisData }: { analysisData: AnalysisData }
     const userMessage: Message = { role: 'user', content: input };
     const newMessages: Message[] = [...messages, userMessage];
     setMessages(newMessages);
+
+    // Save user message immediately
+    const storageKey = `chat_history_${dealId}`;
+    localStorage.setItem(storageKey, JSON.stringify(newMessages));
+
     setInput('');
     setIsLoading(true);
 
@@ -70,25 +112,28 @@ export default function Chatbot({ analysisData }: { analysisData: AnalysisData }
       }
 
       const data = await response.json();
-      setMessages((prevMessages) => [...prevMessages, { role: 'model', content: data.message }]);
+      const updatedMessages = [...newMessages, { role: 'model', content: data.message }];
+
+      // Save AI response immediately to localStorage
+      localStorage.setItem(storageKey, JSON.stringify(updatedMessages));
+      setMessages(updatedMessages);
     } catch (e) {
       console.error(e);
-      setMessages((prevMessages) => [...prevMessages, { role: 'model', content: 'Sorry, I encountered an error. Please try again.' }]);
+      const errorMessages = [...newMessages, { role: 'model', content: 'Sorry, I encountered an error. Please try again.' }];
+
+      // Save error message immediately to localStorage
+      localStorage.setItem(storageKey, JSON.stringify(errorMessages));
+      setMessages(errorMessages);
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <Card className="h-[70vh] flex flex-col">
-      <CardHeader>
-        <CardTitle className="font-headline text-2xl flex items-center gap-3">
-          <Bot className="w-7 h-7 text-primary" />
-          AI Analyst Chat
-        </CardTitle>
-        <CardDescription>Ask follow-up questions to get a deeper analysis of the startup.</CardDescription>
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col gap-4 overflow-hidden">
+      <CardContent className="flex-1 flex flex-col gap-4 overflow-hidden p-4">
         <ScrollArea className="flex-1 pr-4" ref={scrollAreaRef}>
           <div className="space-y-4">
             {messages.map((message, index) => (
@@ -137,7 +182,7 @@ export default function Chatbot({ analysisData }: { analysisData: AnalysisData }
             )}
           </div>
         </ScrollArea>
-        <div className="flex items-center gap-2 pt-4 border-t">
+        <div className="flex items-center gap-2 pt-3 border-t mt-auto">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -150,6 +195,6 @@ export default function Chatbot({ analysisData }: { analysisData: AnalysisData }
           </Button>
         </div>
       </CardContent>
-    </Card>
+    </Card >
   );
 }

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/table"
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Trash2, Download, Upload, Loader2, AlertTriangle } from 'lucide-react';
+import { Trash2, Download, Upload, Loader2, AlertTriangle, Zap, Search } from 'lucide-react';
 import Header from '@/components/header';
 import {
   AlertDialog,
@@ -212,15 +212,56 @@ export default function InvestorDashboard() {
                       </h3>
                       <p className="text-xs text-muted-foreground mt-0.5">{startup.metadata.sector}</p>
                     </Link>
-                    <div className={`flex flex-col items-center justify-center w-11 h-11 rounded-full border-2 ${scoreColor} shrink-0`}>
-                      <span className="text-xs font-bold">{score}</span>
+                    {/* Hide risk score for fast mode */}
+                    {startup.metadata.processing_mode !== 'fast' && (
+                      <div className={`flex flex-col items-center justify-center w-11 h-11 rounded-full border-2 ${scoreColor} shrink-0`}>
+                        <span className="text-xs font-bold">{score}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {/* Processing Mode Badge */}
+                      {startup.metadata.processing_mode === 'fast' ? (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200">
+                          <Zap className="w-3 h-3 text-orange-600" />
+                          <span className="text-xs font-medium text-orange-700">Fast</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200">
+                          <Search className="w-3 h-3 text-blue-600" />
+                          <span className="text-xs font-medium text-blue-700">Research</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between text-sm py-1.5 px-2.5 rounded-md bg-secondary/50">
-                    <span className="text-xs text-muted-foreground font-medium">Recommendation:</span>
-                    <span className="font-semibold text-xs uppercase tracking-wide text-primary">
-                      {recommendation}
+                  {/* Hide recommendation for fast mode */}
+                  {startup.metadata.processing_mode !== 'fast' && (
+                    <div className="flex items-center justify-between text-sm py-1.5 px-2.5 rounded-md bg-secondary/50">
+                      <span className="text-xs text-muted-foreground font-medium">Recommendation:</span>
+                      <span className="font-semibold text-xs uppercase tracking-wide text-primary">
+                        {recommendation}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+                      <line x1="16" x2="16" y1="2" y2="6" />
+                      <line x1="8" x2="8" y1="2" y2="6" />
+                      <line x1="3" x2="21" y1="10" y2="10" />
+                    </svg>
+                    <span>
+                      {new Date(startup.metadata.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </span>
                   </div>
 
@@ -234,7 +275,8 @@ export default function InvestorDashboard() {
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <p className="text-xs text-foreground/80 leading-relaxed line-clamp-2 pl-2.5 cursor-help">
+                              <p className={`text-xs text-foreground/80 leading-relaxed pl-2.5 cursor-help ${startup.metadata.processing_mode === 'fast' ? 'line-clamp-6' : 'line-clamp-2'
+                                }`}>
                                 {memo.conclusion.product_summary}
                               </p>
                             </TooltipTrigger>
@@ -255,7 +297,8 @@ export default function InvestorDashboard() {
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <p className="text-xs text-foreground/80 leading-relaxed line-clamp-2 pl-2.5 cursor-help">
+                              <p className={`text-xs text-foreground/80 leading-relaxed pl-2.5 cursor-help ${startup.metadata.processing_mode === 'fast' ? 'line-clamp-6' : 'line-clamp-2'
+                                }`}>
                                 {memo.conclusion.financial_analysis}
                               </p>
                             </TooltipTrigger>
@@ -267,7 +310,8 @@ export default function InvestorDashboard() {
                       </div>
                     )}
 
-                    {memo?.conclusion?.investment_thesis && (
+                    {/* Hide thesis for fast mode */}
+                    {startup.metadata.processing_mode !== 'fast' && memo?.conclusion?.investment_thesis && (
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-1.5">
                           <div className="w-1 h-1 rounded-full bg-primary/60"></div>
@@ -288,7 +332,8 @@ export default function InvestorDashboard() {
                       </div>
                     )}
 
-                    {memo?.conclusion?.risk_summary && (
+                    {/* Hide risk for fast mode */}
+                    {startup.metadata.processing_mode !== 'fast' && memo?.conclusion?.risk_summary && (
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-1.5">
                           <div className="w-1 h-1 rounded-full bg-primary/60"></div>

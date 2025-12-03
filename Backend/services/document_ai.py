@@ -133,3 +133,62 @@ async def extract_metadata_from_text(text: str) -> Dict[str, Any]:
             "founder_names": [],
             "sector": "Unknown"
         }
+
+async def extract_content_with_gemini(gcs_uri: str, mime_type: str) -> Dict[str, Any]:
+    """
+    Extract content from Video, Audio, or Text files using Gemini 1.5 Flash
+    """
+    from google import genai
+    from google.genai import types
+    from config.settings import settings
+    
+    try:
+        print(f"Starting Gemini extraction for {mime_type} file at {gcs_uri}...")
+        
+        client = genai.Client(
+            vertexai=True,
+            project=settings.GCP_PROJECT_ID,
+            location=settings.GCP_LOCATION
+        )
+        
+        # Create the part from GCS URI
+        file_part = types.Part.from_uri(
+            file_uri=gcs_uri,
+            mime_type=mime_type
+        )
+        
+        prompt = """
+        You are an expert startup analyst. Your task is to extract all relevant information from this pitch deck file (video/audio/text) to prepare for a detailed investment memo.
+        
+        Please provide a comprehensive transcript and description of the content, focusing on:
+        1. The Problem & Solution
+        2. Market Size & Opportunity
+        3. Business Model & Revenue Streams
+        4. Traction & Financials
+        5. Team Background
+        6. Competition & Moat
+        7. Fundraising Ask & Use of Funds
+        
+        If there are visual slides (in video), describe them in detail.
+        If it's audio, transcribe the speech accurately.
+        
+        Output the result as a single block of text that can be used for downstream analysis.
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[file_part, prompt]
+        )
+        
+        extracted_text = response.text.strip()
+        print(f"Gemini extraction completed. Length: {len(extracted_text)} chars")
+        
+        return {
+            "text": extracted_text,
+            "pages": 1, # Placeholder for non-PDF
+            "entities": []
+        }
+        
+    except Exception as e:
+        print(f"Error in Gemini multimodal extraction: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to extract content from {mime_type}: {str(e)}")

@@ -10,9 +10,59 @@ client = genai.Client(
     api_key=settings.GEMINI_API_KEY
 )
 
-async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int]) -> Dict[str, Any]:
-    """Analyze pitch deck content using Gemini 3 Pro Preview with Google Search grounding"""
+async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int], processing_mode: str = "fast") -> Dict[str, Any]:
+    """
+    Analyze pitch deck content using Gemini with Google Search grounding
+    processing_mode: 'fast' uses gemini-2.5-flash, 'research' uses gemini-3-pro-preview
+    """
     try:
+        # Build JSON structure based on processing mode
+        risk_sections = ""
+        if processing_mode == "research":
+            risk_sections = f"""
+            "risk_metrics": {{
+                "composite_risk_score": <CALCULATED_SCORE>,
+                "score_interpretation": "Low (0-40), Medium (41-70), High (71-100)",
+                "narrative_justification": "Detailed explanation: Evaluate each factor (Team: {weightage.get('team_strength', 20)}%, Market: {weightage.get('market_opportunity', 20)}%, Traction: {weightage.get('traction', 20)}%, Claims: {weightage.get('claim_credibility', 20)}%, Financials: {weightage.get('financial_health', 20)}%). Calculate composite score = (Team_Score × {weightage.get('team_strength', 20)}/100) + (Market_Score × {weightage.get('market_opportunity', 20)}/100) + (Traction_Score × {weightage.get('traction', 20)}/100) + (Claims_Score × {weightage.get('claim_credibility', 20)}/100) + (Financials_Score × {weightage.get('financial_health', 20)}/100)"
+            }},
+            "risks_and_mitigation": [
+                {{
+                    "risk": "Market Risk",
+                    "description": "detailed description of the risk",
+                    "likelihood": "Low/Medium/High",
+                    "impact": "Low/Medium/High",
+                    "mitigation": "proposed mitigation strategies"
+                }},
+                {{
+                    "risk": "Technology Risk",
+                    "description": "detailed description",
+                    "likelihood": "Low/Medium/High",
+                    "impact": "Low/Medium/High",
+                    "mitigation": "proposed mitigation strategies"
+                }},
+                {{
+                    "risk": "Competitive Risk",
+                    "description": "detailed description",
+                    "likelihood": "Low/Medium/High",
+                    "impact": "Low/Medium/High",
+                    "mitigation": "proposed mitigation strategies"
+                }},
+                {{
+                    "risk": "Execution Risk",
+                    "description": "detailed description",
+                    "likelihood": "Low/Medium/High",
+                    "impact": "Low/Medium/High",
+                    "mitigation": "proposed mitigation strategies"
+                }},
+                {{
+                    "risk": "Financial Risk",
+                    "description": "detailed description",
+                    "likelihood": "Low/Medium/High",
+                    "impact": "Low/Medium/High",
+                    "mitigation": "proposed mitigation strategies"
+                }}
+            ],"""
+        
         prompt = f"""
         You are an expert venture capital analyst. Analyze the following startup pitch deck content and provide a comprehensive investment memo.
         
@@ -28,7 +78,7 @@ async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int]) ->
 
         
         USE THESE WEIGHTS TO:
-        1. Calculate the composite_risk_score (0-100, where lower is better)
+        1. Calculate the composite_risk_score (0-100, where lower is better) {'' if processing_mode == 'fast' else ''}
         2. Determine the overall_attractiveness in the conclusion
         3. Prioritize analysis depth for higher-weighted factors
         
@@ -147,58 +197,17 @@ async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int]) ->
                     "result": "credibility assessment with reasoning"
                 }}
             ],
-            "risk_metrics": {{
-                "composite_risk_score": <CALCULATED_SCORE>,
-                "score_interpretation": "Low (0-40), Medium (41-70), High (71-100)",
-                "narrative_justification": "Detailed explanation: Evaluate each factor (Team: {weightage.get('team_strength', 20)}%, Market: {weightage.get('market_opportunity', 20)}%, Traction: {weightage.get('traction', 20)}%, Claims: {weightage.get('claim_credibility', 20)}%, Financials: {weightage.get('financial_health', 20)}%). Calculate composite score = (Team_Score × {weightage.get('team_strength', 20)}/100) + (Market_Score × {weightage.get('market_opportunity', 20)}/100) + (Traction_Score × {weightage.get('traction', 20)}/100) + (Claims_Score × {weightage.get('claim_credibility', 20)}/100) + (Financials_Score × {weightage.get('financial_health', 20)}/100)"
-            }},
-            "risks_and_mitigation": [
-                {{
-                    "risk": "Market Risk",
-                    "description": "detailed description of the risk",
-                    "likelihood": "Low/Medium/High",
-                    "impact": "Low/Medium/High",
-                    "mitigation": "proposed mitigation strategies"
-                }},
-                {{
-                    "risk": "Technology Risk",
-                    "description": "detailed description",
-                    "likelihood": "Low/Medium/High",
-                    "impact": "Low/Medium/High",
-                    "mitigation": "proposed mitigation strategies"
-                }},
-                {{
-                    "risk": "Competitive Risk",
-                    "description": "detailed description",
-                    "likelihood": "Low/Medium/High",
-                    "impact": "Low/Medium/High",
-                    "mitigation": "proposed mitigation strategies"
-                }},
-                {{
-                    "risk": "Execution Risk",
-                    "description": "detailed description",
-                    "likelihood": "Low/Medium/High",
-                    "impact": "Low/Medium/High",
-                    "mitigation": "proposed mitigation strategies"
-                }},
-                {{
-                    "risk": "Financial Risk",
-                    "description": "detailed description",
-                    "likelihood": "Low/Medium/High",
-                    "impact": "Low/Medium/High",
-                    "mitigation": "proposed mitigation strategies"
-                }}
-            ],
+            {risk_sections}
             "conclusion": {{
                 "overall_attractiveness": "Start with clear INVEST/PASS/CONDITIONAL recommendation.",
                 "product_summary": "One sentence summary of the product and its core value prop.",
                 "financial_analysis": "Brief summary of financial pros & cons (e.g. 'Strong margins but high burn').",
                 "investment_thesis": "Why invest? (or why not?). The core argument.",
-                "risk_summary": "Reference the composite risk score and the main risk factor."
+                "risk_summary": "{'Reference the composite risk score and the main risk factor.' if processing_mode == 'research' else 'Brief summary of main considerations (risk analysis not performed in fast mode).'}"
             }}
         }}
         
-        CRITICAL INSTRUCTIONS FOR RISK_METRICS AND CONCLUSION:
+        CRITICAL INSTRUCTIONS FOR {'RISK_METRICS AND ' if processing_mode == 'research' else ''}CONCLUSION:
         1. For market_analysis data, USE GOOGLE SEARCH to find current, accurate information
         2. **COMPOSITE RISK SCORE CALCULATION** (weights are already percentages totaling 100%):
            - Evaluate each of the 5 factors (Team, Market, Traction, Claims, Financials) on a 0-100 risk scale
@@ -224,8 +233,11 @@ async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int]) ->
         13. Return ONLY valid JSON, no additional text or markdown
         """
         
+        # Select model based on processing mode
+        model_name = "gemini-2.5-flash" if processing_mode == "fast" else "gemini-3-pro-preview"
+        
         response = client.models.generate_content(
-            model='gemini-3-pro-preview',
+            model=model_name,
             contents=prompt,
             config=GenerateContentConfig(
                 tools=[Tool(google_search=GoogleSearch())],
@@ -249,12 +261,14 @@ async def analyze_with_gemini(extracted_text: str, weightage: Dict[str, int]) ->
         # Parse JSON
         analysis = json.loads(response_text)
         
-        # Validate required fields
+        # Validate required fields (risk fields optional for fast mode)
         required_fields = [
             'company_overview', 'market_analysis', 'business_model',
-            'financials', 'claims_analysis', 'risk_metrics',
-            'risks_and_mitigation', 'conclusion'
+            'financials', 'claims_analysis', 'conclusion'
         ]
+        
+        if processing_mode == "research":
+            required_fields.extend(['risk_metrics', 'risks_and_mitigation'])
         
         for field in required_fields:
             if field not in analysis:
@@ -493,12 +507,12 @@ async def generate_investor_chat_response(
         """
         
         response = client.models.generate_content(
-            model='gemini-3-pro-preview',
+            model='gemini-2.5-flash',
             contents=prompt,
             config=GenerateContentConfig(
                 tools=[Tool(google_search=GoogleSearch())],
                 temperature=0.3,
-                max_output_tokens=2048
+                max_output_tokens=5000
             )
         )
         
@@ -510,3 +524,99 @@ async def generate_investor_chat_response(
             status_code=500, 
             detail=f"Failed to generate chat response: {str(e)}"
         )
+
+async def verify_claims_with_google(extracted_text: str) -> Dict[str, Any]:
+    """
+    Extract key claims from the pitch deck and verify them using Google Search.
+    Returns a list of verified claims with verdicts.
+    """
+    try:
+        prompt = f"""
+        You are a world-class investigative fact-checker with access to Google Search. Your job is to verify startup claims with the rigor of a top-tier investigative journalist.
+        
+        STEP 1: EXTRACT CLAIMS
+        Identify 5-8 specific, verifiable claims from the pitch deck below. Prioritize:
+        - Quantifiable metrics (revenue, users, growth rates, market size)
+        - Named entities (partnerships, customers, awards, investors, team credentials)
+        - Time-bound achievements (milestones, launches, certifications)
+        
+        STEP 2: DEEP VERIFICATION METHODOLOGY
+        For EACH claim, apply this exhaustive search process:
+        
+        A. QUERY FORMULATION (Try 3-5 variations):
+           - Direct: "exact claim text"
+           - Reverse: Search for the entity mentioned (e.g., if claim is "Won X Award", search "X Award 2023 winners")
+           - Contextual: Add related keywords (company name + claim + year/location)
+           - Negative: Search for contradictions or corrections
+        
+        B. SOURCE HIERARCHY (Check in this order):
+           1. Primary sources: Official websites, press releases, verified social media of entities mentioned
+           2. Secondary sources: News articles, industry publications, databases (Crunchbase, PitchBook)
+           3. Tertiary sources: LinkedIn posts, blog mentions, community forums
+           4. Social proof: Instagram/Twitter announcements, conference speaker lists, portfolio pages
+        
+        C. VERIFICATION RULES:
+           - If claim mentions Company A worked with Company B, check BOTH companies' websites/social media
+           - For awards/programs, find the official site and look for winner lists, even if buried in PDFs or subpages
+           - For financial claims, cross-reference multiple sources (funding databases, news, filings if public)
+           - For team credentials, verify via LinkedIn, university alumni pages, or past employer websites
+           - If something seems off, search for corrections, retractions, or alternative perspectives
+        
+        D. PERSISTENCE:
+           - NEVER mark as "Unverifiable" after just 1-2 searches
+           - If direct search fails, try lateral searches (e.g., search for the award itself, then manually look for the company)
+           - Check archived versions if current pages don't exist (mention this in explanation)
+           - Consider that evidence might be in images, PDFs, or video content (Google can find these)
+        
+        STEP 3: VERDICT ASSIGNMENT
+        Based on cumulative evidence:
+        - "Verified": Found concrete evidence from authoritative sources (cite the best one)
+        - "Likely True": Strong circumstantial evidence but no direct confirmation (explain why you believe it)
+        - "Exaggerated": Claim is technically true but misleading in context (explain the nuance)
+        - "False": Direct contradiction from credible sources
+        - "Unverifiable": Exhaustively searched with no evidence (LIST all places you checked)
+        
+        STEP 4: TRANSPARENCY
+        In the explanation field, document your research trail:
+        - What searches you ran
+        - What sources you checked
+        - Why you arrived at this verdict
+        - If "Unverifiable", explicitly state: "Searched X, Y, Z but found no evidence"
+        
+        PITCH DECK TEXT:
+        {extracted_text[:15000]}
+        
+        Return ONLY this JSON structure:
+        {{
+            "claims": [
+                {{
+                    "claim": "The exact claim from the pitch deck",
+                    "verdict": "Verified/Likely True/Exaggerated/False/Unverifiable",
+                    "explanation": "Detailed research trail: what you searched, what you found, why this verdict",
+                    "source_url": "Best authoritative source URL, or null if none found",
+                    "confidence": "High/Medium/Low"
+                }}
+            ]
+        }}
+        """
+        
+        response = client.models.generate_content(
+            model='gemini-3-pro-preview',
+            contents=prompt,
+            config=GenerateContentConfig(
+                tools=[Tool(google_search=GoogleSearch())],
+                temperature=0.1
+            )
+        )
+        
+        response_text = response.text.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[7:-3]
+        elif response_text.startswith("```"):
+            response_text = response_text[3:-3]
+            
+        return json.loads(response_text)
+        
+    except Exception as e:
+        print(f"Error in fact check generation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to verify claims: {str(e)}")

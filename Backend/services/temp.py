@@ -1,8 +1,11 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
+from google.cloud import firestore
+from datetime import datetime, timedelta
+import secrets
+import json
+from config.settings import settings
 from google import genai
 from google.genai.types import GenerateContentConfig
-from config.settings import settings
-import json
 
 client = genai.Client(
     vertexai=True,
@@ -10,316 +13,569 @@ client = genai.Client(
     location=settings.GCP_LOCATION
 )
 
-async def chat_with_founder(
-    interview_data: Dict[str, Any],
-    user_message: str,
-    chat_history: List[Dict[str, str]]
-) -> Dict[str, Any]:
+db = firestore.Client(project=settings.GCP_PROJECT_ID)
+
+def generate_interview_token() -> str:
+    """Generate secure unique token for interview"""
+    return secrets.token_urlsafe(32)
+
+def is_field_missing_or_shallow(value: Any, field_type: str = "text") -> Tuple[bool, str]:
     """
-    Natural conversational AI that adapts to founder's responses
+    Check if field is missing or needs more detail
+    Returns: (needs_attention, reason)
     """
+    if value is None:
+        return True, "missing"
     
-    company_name = interview_data.get('company_name', 'your startup')
-    sector = interview_data.get('sector', 'your industry')
-    founder_name = interview_data.get('founder_name', 'Founder')
-    issues = interview_data.get('issues', [])
-    gathered_info = interview_data.get('gathered_info', {})
-    cannot_answer_fields = interview_data.get('cannot_answer_fields', [])
+    # Convert to string for analysis
+    value_str = str(value).strip()
     
-    # ✅ Get all original issue field names
-    all_issue_fields = [issue['field'] for issue in issues]
-    
-    # ✅ Only count gathered_info that matches actual issue fields
-    gathered_issue_fields = [f for f in gathered_info.keys() if f in all_issue_fields]
-    
-    # Build what we still need - EXCLUDE fields already gathered or can't answer
-    still_needed = [
-        {
-            'field': issue['field'],
-            'question': issue['question'],
-            'category': issue['category'],
-            'importance': issue['importance'],
-            'status': issue['status']
-        }
-        for issue in issues
-        if issue['field'] not in gathered_issue_fields and issue['field'] not in cannot_answer_fields
+    # Check for explicit missing indicators
+    missing_indicators = [
+        "not available",
+        "n/a",
+        "unknown",
+        "not provided",
+        "not mentioned",
+        "no information",
+        "not specified",
+        "not found",
+        ""
     ]
     
-    # Get recent context
-    recent_context = chat_history[-10:] if len(chat_history) > 10 else chat_history
+    if value_str.lower() in missing_indicators:
+        return True, "missing"
     
-    # Get next 3 questions to ask
-    next_questions = [q['question'] for q in still_needed[:3]]
-    
-    # ✅ Debug logging
-    print(f"📋 Total issues: {len(all_issue_fields)}")
-    print(f"✅ Gathered (matching issues): {len(gathered_issue_fields)}")
-    print(f"❌ Cannot answer: {len(cannot_answer_fields)}")
-    print(f"⏳ Still needed: {len(still_needed)}")
-    print(f"📊 Progress: {len(gathered_issue_fields) + len(cannot_answer_fields)}/{len(all_issue_fields)}")
-    
-    will_be_closing = len(still_needed) <= 0
-    
-    # Build conversation prompt
-    if will_be_closing:
-        # ✅ CLOSING MESSAGE
-        prompt = f"""
-You are Sarah, a friendly investment analyst. You just finished interviewing {founder_name} about {company_name}.
-
-## CONTEXT:
-- We've covered all topics we needed to discuss
-- Total topics: {len(all_issue_fields)}
-- Answered: {len(gathered_issue_fields)}
-- Couldn't answer: {len(cannot_answer_fields)}
-- Founder's last message: "{user_message}"
-
-## YOUR TASK:
-Write a warm, professional CLOSING message that:
-1. Thanks them for their time and openness
-2. Summarizes what you'll do next (update investment memo, share feedback)
-3. Encourages them about their company
-4. Mentions when they might expect to hear back (within 2-3 weeks)
-5. Leaves them feeling positive
-
-Keep it 60-100 words. Be warm and genuine, not robotic.
-
-Closing message:
-"""
-    else:
-        # ✅ NORMAL CONTINUATION
-        prompt = f"""
-You are Sarah, a friendly investment analyst talking with {founder_name} about {company_name} ({sector}).
-
-## CONTEXT:
-- Progress: {len(gathered_issue_fields) + len(cannot_answer_fields)}/{len(all_issue_fields)} topics covered
-- Founder's latest message: "{user_message}"
-- Fields they already said they don't know: {json.dumps(cannot_answer_fields[:5])}
-
-## NEXT 3 QUESTIONS TO ASK (in priority order):
-1. {next_questions[0] if len(next_questions) > 0 else 'Tell me about your financials?'}
-2. {next_questions[1] if len(next_questions) > 1 else 'Tell me about your team?'}
-3. {next_questions[2] if len(next_questions) > 2 else 'Tell me about your market?'}
-
-## RECENT CONVERSATION:
-{json.dumps(recent_context[-6:], indent=2)}
-
-## YOUR RULES:
-1. Be warm, conversational, human-like
-2. Acknowledge their answer briefly (1-2 sentences)
-3. THEN ASK THE NEXT QUESTION (required!)
-4. If they say "don't know":
-   - First time → Try ONE different angle OR ask for rough estimate
-   - After that → Move to DIFFERENT question, don't repeat
-5. One question at a time, 40-80 words total
-6. Make it feel like coffee chat, not interrogation
-7. MUST END WITH A QUESTION MARK
-8. DO NOT ask questions about topics they already said they don't know
-
-## CRITICAL: YOUR RESPONSE MUST:
-✓ Acknowledge their answer
-✓ Ask ONE of the next 3 questions above
-✓ End with "?"
-
-Based on all this, respond with acknowledgment + next question:
-"""
-    
-    try:
-        response = client.models.generate_content(
-            model='gemini-3.0-flash-001',
-            contents=prompt,
-            config=GenerateContentConfig(
-                temperature=0.85,
-                max_output_tokens=1000,
-                top_p=0.95
-            )
-        )
+    # Check for shallow/vague content (needs more detail)
+    if field_type == "text":
+        # Text should be at least 20 characters for meaningful content
+        if len(value_str) < 20:
+            return True, "too_vague"
         
-        if response is None or not hasattr(response, 'text'):
-            raise ValueError("Invalid API response")
-        
-        ai_message = response.text.strip()
-        
-        if not ai_message:
-            raise ValueError("Empty response from AI")
-        
-        # ✅ Only add question mark if NOT closing message
-        if not will_be_closing:
-            if not ai_message.endswith('?'):
-                if not any(ai_message.endswith(p) for p in ['?', '!', '.']):
-                    ai_message += '?'
-                elif ai_message.endswith('.'):
-                    if '?' not in ai_message:
-                        ai_message = ai_message[:-1] + '?'
-        
-    except Exception as e:
-        print(f"❌ Chat Error: {str(e)}")
-        if will_be_closing:
-            ai_message = f"Thank you so much for your time, {founder_name}! We've gathered excellent insights about {company_name}. I'll update our investment memo and get back to you within 2-3 weeks with our feedback. Best of luck with everything!"
-        else:
-            next_q = still_needed[0]['question'] if still_needed else "What else can you tell me?"
-            ai_message = f"Thanks for sharing! {next_q}"
-    
-    # Extract what was gathered from this turn
-    completion_check = await analyze_and_extract(
-        issues,
-        gathered_info,
-        cannot_answer_fields,
-        chat_history + [
-            {"role": "user", "message": user_message},
-            {"role": "assistant", "message": ai_message}
+        # Check for vague phrases
+        vague_phrases = [
+            "limited information",
+            "details unclear",
+            "not enough detail",
+            "minimal information",
+            "brief mention",
+            "vague description"
         ]
-    )
+        if any(phrase in value_str.lower() for phrase in vague_phrases):
+            return True, "needs_detail"
     
-    return {
-        "message": ai_message,
-        "is_complete": completion_check['is_complete'],
-        "gathered_info": completion_check['gathered_info'],
-        "cannot_answer_fields": completion_check.get('cannot_answer_fields', [])
-    }
+    elif field_type == "list":
+        if isinstance(value, list) and len(value) == 0:
+            return True, "missing"
+        if isinstance(value, list) and len(value) < 2:
+            return True, "needs_more_items"
+    
+    elif field_type == "numeric":
+        # Check for numeric fields that are zero or missing
+        try:
+            num_val = float(value_str.replace('$', '').replace(',', '').replace('%', ''))
+            if num_val == 0:
+                return True, "zero_value"
+        except:
+            return True, "invalid_numeric"
+    
+    return False, "complete"
 
-
-async def analyze_and_extract(
-    issues: List[Dict[str, str]],
-    gathered_info: Dict[str, Any],
-    existing_cannot_answer: List[str],
-    chat_history: List[Dict[str, str]]
-) -> Dict[str, Any]:
+def identify_missing_and_shallow_fields(deal_data: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
     """
-    Extract information from latest conversation turn
+    Use AI to intelligently identify missing, shallow, and vague information in memo
     """
     
-    user_messages = [msg for msg in chat_history if msg['role'] == 'user']
+    memo = deal_data.get('memo', {}).get('draft_v1', {})
+    metadata = deal_data.get('metadata', {})
     
-    if len(user_messages) < 2:
-        return {
-            "is_complete": False,
-            "gathered_info": gathered_info,
-            "still_pending": [i['field'] for i in issues],
-            "cannot_answer_fields": []
-        }
+    company_name = metadata.get('company_name', 'Unknown')
+    sector = metadata.get('sector', 'Unknown')
+    stage = metadata.get('stage', 'Unknown')
     
-    # ✅ Get all issue field names
-    all_issue_fields = [issue['field'] for issue in issues]
+    # Build memo JSON safely
+    memo_json = json.dumps(memo, indent=2)
     
-    # Build conversation - only recent messages
-    conversation = []
-    for msg in chat_history[-10:]:
-        role = "Analyst" if msg['role'] == 'assistant' else "Founder"
-        conversation.append(f"{role}: {msg['message']}")
-    
-    # What we're still looking for
-    fields_needed = [
-        {
-            'field': issue['field'],
-            'question': issue['question'],
-            'category': issue['category']
-        }
-        for issue in issues
-        if issue['field'] not in gathered_info
-    ]
-    
-    # Ask AI to analyze ONLY latest exchange
-    analysis_prompt = f"""
-Analyze the LATEST founder response to extract information.
+    # Build prompt without raw newlines in f-string
+    analysis_prompt = f"""You are an experienced VC analyst reviewing an investment memo for completeness and depth.
 
-## FIELDS WE NEED:
-{json.dumps(fields_needed[:10], indent=2)}
+COMPANY INFORMATION:
+- Name: {company_name}
+- Sector: {sector}
+- Stage: {stage}
 
-## ALREADY HAVE:
-{json.dumps([f for f in gathered_info.keys() if f in all_issue_fields])}
+INVESTMENT MEMO TO ANALYZE:
+{memo_json}
 
-## LATEST CONVERSATION (last 4 messages):
-{json.dumps(conversation[-4:], indent=2)}
+YOUR TASK:
+Analyze this memo and identify:
+1. MISSING - Critical information completely absent
+2. SHALLOW - Information present but too brief/vague to be useful
+3. NEEDS_DETAIL - Basic info exists but lacks depth for investment decision
 
-## YOUR TASK:
-1. Extract information from the LATEST founder message ONLY
-2. Match extracted info to the field names in "FIELDS WE NEED"
-3. Note if founder said "don't know" in this latest response
+WHAT TO CHECK:
 
-Return JSON:
+Financials (CRITICAL):
+- ARR/MRR with specific numbers
+- Monthly burn rate with actual amount
+- Runway in months
+- Funding history (rounds, amounts, investors)
+- Gross margin percentage
+- Revenue projections for next 2-3 years
+- Unit economics (CAC, LTV) with calculations
+
+Team (CRITICAL):
+- Each founder's full background (education + work experience)
+- Years of relevant experience
+- Previous startups or exits
+- Domain expertise credentials
+
+Market (HIGH):
+- TAM with source/calculation
+- SAM and SOM breakdown
+- Market growth rate with evidence
+- At least 3-4 main competitors with details
+
+Business Model (HIGH):
+- Clear revenue streams
+- Pricing strategy and tiers
+- Customer acquisition channels
+- Sales cycle details
+
+Traction (HIGH):
+- Customer count with specifics
+- Revenue metrics month-over-month
+- Key milestones achieved
+
+IMPORTANT RULES:
+- "Not available" or "N/A" or "Unknown" = MISSING
+- Very brief text (less than 30 characters) = SHALLOW
+- Generic statements without specifics = NEEDS_DETAIL
+- Zero or null values = MISSING
+- Ask specific questions 
+- Don't repeat same question.
+
+Return VALID JSON with this exact structure (no extra text):
 {{
-    "extracted": {{
-        "exact_field_name_from_fields_we_need": {{
-            "value": "what they said",
-            "confidence": "high/medium/low"
+    "missing": [
+        {{
+            "field": "field_id",
+            "category": "financials/team/market/business/traction/product",
+            "question": "Natural question to ask",
+            "importance": "critical/high/medium/low"
         }}
-    }},
-    "cannot_answer": ["exact_field_name_from_fields_we_need"]
+    ],
+    "shallow": [],
+    "needs_detail": []
 }}
 
-CRITICAL RULES:
-- Use EXACT field names from "FIELDS WE NEED" list
-- Extract ONLY from latest founder message
-- "cannot_answer" = fields they said "don't know" to in THIS message only
-- Confidence high = clear answer, medium = partial answer, low = vague
-"""
+Only return valid JSON, nothing else:"""
     
     try:
         response = client.models.generate_content(
-            model='gemini-3.0-flash-001',
+            model='gemini-2.5-flash',
             contents=analysis_prompt,
             config=GenerateContentConfig(
-                temperature=0.2,
+                temperature=0.3,
                 response_mime_type="application/json",
-                max_output_tokens=2048
+                max_output_tokens=32768
             )
         )
         
-        if response is None or not hasattr(response, 'text') or response.text is None:
-            raise ValueError("Invalid API response")
-        
+        print("Response Text: ",response.text)
         response_text = response.text.strip()
         
-        if not response_text:
-            raise ValueError("Empty response")
+        # Clean up response if it has markdown code blocks
+        if response_text.startswith('```json'):
+            response_text = response_text[7:]  # Remove ```json
+        if response_text.startswith('```'):
+            response_text = response_text[3:]  # Remove ```
+        if response_text.endswith('```'):
+            response_text = response_text[:-3]  # Remove trailing ```
         
-        result = json.loads(response_text)
+        # response_text = response_text.strip()
+        print("Final Text: ",response_text)
+        issues = json.loads(response_text)
         
-        # ✅ Merge extracted info - ONLY if field name matches issues
-        merged = {**gathered_info}
-        for field, data in result.get('extracted', {}).items():
-            # Only add if it's a valid issue field
-            if field in all_issue_fields and data.get('confidence') in ['high', 'medium']:
-                merged[field] = data
+        print(f"📊 Gap Analysis Complete:")
+        print(f"   - Missing: {len(issues.get('missing', []))}")
+        print(f"   - Shallow: {len(issues.get('shallow', []))}")
+        print(f"   - Needs Detail: {len(issues.get('needs_detail', []))}")
         
-        # ✅ Get NEW cannot_answer fields from this response
-        new_cannot_answer = [f for f in result.get('cannot_answer', []) if f in all_issue_fields]
-        
-        # ✅ Calculate progress based on ACTUAL issue fields only
-        gathered_count = len([f for f in merged.keys() if f in all_issue_fields])
-        total_cannot_answer = len(set(existing_cannot_answer + new_cannot_answer))
-        total_attempted = gathered_count + total_cannot_answer
-        total_issues = len(all_issue_fields)
-        
-        # ✅ Simple: Complete when ALL issues attempted
-        is_complete = (total_attempted >= total_issues)
-        
-        print(f"📊 Extraction result:")
-        print(f"   - Gathered: {gathered_count}/{total_issues}")
-        print(f"   - Cannot answer: {total_cannot_answer}")
-        print(f"   - Total attempted: {total_attempted}/{total_issues}")
-        print(f"   - Complete: {is_complete}")
-        
-        return {
-            "is_complete": is_complete,
-            "gathered_info": merged,
-            "still_pending": [f for f in all_issue_fields if f not in merged.keys() and f not in existing_cannot_answer],
-            "cannot_answer_fields": new_cannot_answer  # Only NEW ones from this turn
-        }
+        return issues
         
     except json.JSONDecodeError as e:
         print(f"❌ JSON Parse Error: {str(e)}")
-        return {
-            "is_complete": False,
-            "gathered_info": gathered_info,
-            "still_pending": [i['field'] for i in fields_needed],
-            "cannot_answer_fields": []
-        }
+        print(f"Response was: {response_text[:200]}")
+        raise ValueError(f"Failed to parse AI response as JSON: {str(e)}")
     except Exception as e:
-        print(f"❌ Analysis Error: {str(e)}")
+        print(f"❌ Error analyzing memo gaps: {str(e)}")
+        raise ValueError(f"Failed to analyze memo: {str(e)}")
+
+def generate_draft_interview(deal_id: str) -> bool:
+    """
+    Generate interview questions and save as draft.
+    Returns True if questions were generated, False if no questions needed.
+    """
+    print(f"[{deal_id}] Generating draft interview questions...")
+    
+    # Get deal data
+    deal_ref = db.collection('deals').document(deal_id)
+    deal_data = deal_ref.get().to_dict()
+    
+    if not deal_data:
+        print(f"[{deal_id}] Deal not found")
+        return False
+        
+    # Identify issues
+    try:
+        issues = identify_missing_and_shallow_fields(deal_data)
+    except Exception as e:
+        print(f"[{deal_id}] Failed to identify issues: {e}")
+        return False
+    
+    # Flatten and sort issues
+    all_issues = []
+    for category in ['missing', 'shallow', 'needs_detail']:
+        for issue in issues.get(category, []):
+            issue['status'] = category
+            all_issues.append(issue)
+            
+    importance_order = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+    all_issues.sort(key=lambda x: importance_order.get(x['importance'], 999))
+    
+    # ALWAYS ADD DEFAULT REGULATORY & COMPLIANCE QUESTION AT THE START
+    regulatory_question = {
+        'field': 'regulatory_compliance',
+        'category': 'risks',
+        'question': 'Can you share details about any regulatory requirements, compliance frameworks, or legal considerations relevant to your business? For example, data privacy regulations (GDPR, CCPA), industry-specific licenses, or certifications you need to maintain.',
+        'importance': 'high',
+        'status': 'default_question'
+    }
+    
+    # Prepend the regulatory question to the front
+    all_issues.insert(0, regulatory_question)
+    
+    if not all_issues:
+        print(f"[{deal_id}] No issues found, skipping interview generation")
+        return False
+        
+    # Create draft interview object
+    interview_data = {
+        'deal_id': deal_id,
+        'status': 'draft',
+        'created_at': datetime.utcnow().isoformat() + "Z",
+        'issues': all_issues,
+        'missing_fields': [issue['field'] for issue in all_issues],
+        'gathered_info': {},
+        'cannot_answer_fields': [],
+        'asked_questions': [],
+        'ask_count': {},
+        'progress': {
+            'total': len(all_issues),
+            'answered': 0,
+            'cannot_answer': 0,
+            'attempted': 0,
+            'remaining': len(all_issues),
+            'is_complete': False
+        },
+        'chat_history': [],
+        'is_complete': False
+    }
+    
+    deal_ref.update({
+        'interview': interview_data
+    })
+    
+    print(f"[{deal_id}] Draft interview saved with {len(all_issues)} questions")
+    return True
+
+def create_interview(deal_id: str, founder_email: str, founder_name: str = None) -> Dict[str, Any]:
+    """
+    Activate an existing draft interview or create a new one if missing.
+    Generates token and sends email.
+    """
+    deal_ref = db.collection('deals').document(deal_id)
+    deal_data = deal_ref.get().to_dict()
+    
+    if not deal_data:
+        raise ValueError(f"Deal {deal_id} not found")
+        
+    interview = deal_data.get('interview')
+    
+    # Case 1: Interview already active or pending - return existing
+    if interview and interview.get('status') in ['pending', 'active']:
+        # Update email/name if provided
+        updates = {}
+        if founder_email and founder_email != interview.get('founder_email'):
+            updates['interview.founder_email'] = founder_email
+            interview['founder_email'] = founder_email
+        if founder_name and founder_name != interview.get('founder_name'):
+            updates['interview.founder_name'] = founder_name
+            interview['founder_name'] = founder_name
+            
+        if updates:
+            deal_ref.update(updates)
+            
         return {
-            "is_complete": False,
-            "gathered_info": gathered_info,
-            "still_pending": [i['field'] for i in fields_needed],
-            "cannot_answer_fields": []
+            "deal_id": deal_id,
+            "token": interview['token'],
+            "link": f"{settings.FRONTEND_URL}/interview/{interview['token']}",
+            "total_questions": len(interview.get('issues', [])),
+            "critical_questions": len([i for i in interview.get('issues', []) if i.get('importance') == 'critical']),
+            "breakdown": {} # Not strictly needed for re-sending
         }
+
+    # Case 2: No draft exists - generate one now (fallback)
+    if not interview or interview.get('status') != 'draft':
+        print(f"[{deal_id}] No draft interview found, generating now...")
+        has_questions = generate_draft_interview(deal_id)
+        if not has_questions:
+            raise ValueError("No questions generated for this deal. Interview not needed.")
+        # Refetch to get the draft
+        deal_data = deal_ref.get().to_dict()
+        interview = deal_data.get('interview')
+
+    # Case 3: Activate draft
+    token = generate_interview_token()
+    
+    updates = {
+        'interview.status': 'pending',
+        'interview.token': token,
+        'interview.founder_email': founder_email,
+        'interview.founder_name': founder_name or "Founder",
+        'interview.expires_at': (datetime.utcnow() + timedelta(days=7)).isoformat() + "Z",
+        'interview.activated_at': datetime.utcnow().isoformat() + "Z"
+    }
+    
+    deal_ref.update(updates)
+    
+    # Merge updates into local object for return
+    interview.update({
+        'token': token,
+        'founder_email': founder_email,
+        'founder_name': founder_name
+    })
+    
+    return {
+        "deal_id": deal_id,
+        "token": token,
+        "link": f"{settings.FRONTEND_URL}/interview/{token}",
+        "total_questions": len(interview['issues']),
+        "critical_questions": len([i for i in interview['issues'] if i.get('importance') == 'critical']),
+        "breakdown": {
+            "missing": len([i for i in interview['issues'] if i.get('status') == 'missing']),
+            "shallow": len([i for i in interview['issues'] if i.get('status') == 'shallow']),
+            "needs_detail": len([i for i in interview['issues'] if i.get('status') == 'needs_detail'])
+        }
+    }
+
+# def validate_interview_token(token: str) -> Dict[str, Any]:
+#     """
+#     Validate interview token and return interview data
+#     Uses single query on deals collection
+#     """
+#     # Query deals collection for matching token
+#     deals_ref = db.collection('deals')
+#     query = deals_ref.where('interview.token', '==', token).limit(1)
+    
+#     results = list(query.stream())
+    
+#     if not results:
+#         raise ValueError("Invalid interview token")
+    
+#     deal_doc = results[0]
+#     deal_data = deal_doc.to_dict()
+#     deal_id = deal_doc.id
+    
+#     if 'interview' not in deal_data:
+#         raise ValueError("No interview found")
+    
+#     interview = deal_data['interview']
+    
+#     # Check status
+#     if interview['status'] == 'completed':
+#         raise ValueError("Interview already completed")
+    
+#     if interview['status'] == 'expired':
+#         raise ValueError("Interview link has expired")
+    
+#     # Check expiration
+#     expires_at = datetime.fromisoformat(interview['expires_at'].replace('Z', '+00:00'))
+#     if datetime.utcnow() > expires_at.replace(tzinfo=None):
+#         # Mark as expired
+#         db.collection('deals').document(deal_id).update({
+#             'interview.status': 'expired'
+#         })
+#         raise ValueError("Interview link has expired")
+    
+#     # Mark as active if pending
+#     if interview['status'] == 'pending':
+#         db.collection('deals').document(deal_id).update({
+#             'interview.status': 'active',
+#             'interview.started_at': datetime.utcnow().isoformat() + "Z"
+#         })
+#         interview['status'] = 'active'
+    
+#     interview['deal_id'] = deal_id
+#     interview['company_name'] = deal_data.get('metadata', {}).get('company_name', 'Unknown')
+#     interview['sector'] = deal_data.get('metadata', {}).get('sector', 'Unknown')
+    
+#     return interview
+
+def validate_interview_token(token: str) -> Dict[str, Any]:
+    """
+    Validate interview token and return interview data
+    Uses single query on deals collection
+    """
+    # Query deals collection for matching token
+    deals_ref = db.collection('deals')
+    query = deals_ref.where('interview.token', '==', token).limit(1)
+    
+    results = list(query.stream())
+    
+    if not results:
+        raise ValueError("Invalid interview token")
+    
+    deal_doc = results[0]
+    deal_data = deal_doc.to_dict()
+    deal_id = deal_doc.id
+    
+    if 'interview' not in deal_data:
+        raise ValueError("No interview found")
+    
+    interview = deal_data['interview']
+    
+    # Check status
+    if interview['status'] == 'completed':
+        raise ValueError("Interview already completed")
+    
+    if interview['status'] == 'expired':
+        raise ValueError("Interview link has expired")
+    
+    # Check expiration
+    expires_at = datetime.fromisoformat(interview['expires_at'].replace('Z', '+00:00'))
+    if datetime.utcnow() > expires_at.replace(tzinfo=None):
+        # Mark as expired
+        db.collection('deals').document(deal_id).update({
+            'interview.status': 'expired'
+        })
+        raise ValueError("Interview link has expired")
+    
+    # Mark as active if pending
+    if interview['status'] == 'pending':
+        db.collection('deals').document(deal_id).update({
+            'interview.status': 'active',
+            'interview.started_at': datetime.utcnow().isoformat() + "Z"
+        })
+        interview['status'] = 'active'
+    
+    interview['deal_id'] = deal_id
+    interview['company_name'] = deal_data.get('metadata', {}).get('company_name', 'Unknown')
+    interview['sector'] = deal_data.get('metadata', {}).get('sector', 'Unknown')
+    
+    return interview
+
+# def complete_interview(deal_id: str, gathered_info: Dict[str, Any]):
+#     """Mark interview as complete and update deal with gathered info"""
+#     deal_ref = db.collection('deals').document(deal_id)
+    
+#     # Update interview status
+#     deal_ref.update({
+#         'interview.status': 'completed',
+#         'interview.completed_at': datetime.utcnow().isoformat() + "Z",
+#         'interview.gathered_info': gathered_info
+#     })
+    
+#     # Update deal memo with gathered information
+#     update_deal_with_interview_data(deal_id, gathered_info)
+
+# def complete_interview(deal_id: str, gathered_info: Dict[str, Any]):
+#     """Mark interview as complete and update memo with interview data"""
+#     from services.memo_regeneration import regenerate_memo_with_interview
+#     import asyncio
+    
+#     deal_ref = db.collection('deals').document(deal_id)
+    
+#     # Update interview status
+#     deal_ref.update({
+#         'interview.status': 'completed',
+#         'interview.completed_at': datetime.utcnow().isoformat() + "Z",
+#         'interview.gathered_info': gathered_info
+#     })
+    
+#     print(f"✅ Interview completed for deal {deal_id}")
+#     print(f"🔄 Updating memo with interview insights...")
+    
+#     # Update memo with interview data
+#     try:
+#         loop = asyncio.get_event_loop()
+#         if loop.is_running():
+#             asyncio.create_task(regenerate_memo_with_interview(deal_id))
+#         else:
+#             loop.run_until_complete(regenerate_memo_with_interview(deal_id))
+#     except Exception as e:
+#         print(f"❌ Error updating memo: {str(e)}")
+
+def complete_interview(deal_id: str, gathered_info: Dict[str, Any]):
+    """Mark interview as complete and update memo with interview data"""
+    from services.memo_regeneration import regenerate_memo_with_interview
+    import asyncio
+    
+    deal_ref = db.collection('deals').document(deal_id)
+    
+    # Update interview status
+    deal_ref.update({
+        'interview.status': 'completed',
+        'interview.completed_at': datetime.utcnow().isoformat() + "Z",
+        'interview.gathered_info': gathered_info
+    })
+    
+    print(f"✅ Interview completed for deal {deal_id}")
+    print(f"🔄 Updating memo with interview insights...")
+    
+    # Update memo with interview data
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(regenerate_memo_with_interview(deal_id))
+        else:
+            loop.run_until_complete(regenerate_memo_with_interview(deal_id))
+    except Exception as e:
+        print(f"❌ Error updating memo: {str(e)}")
+
+def update_deal_with_interview_data(deal_id: str, gathered_info: Dict[str, Any]):
+    """Update deal memo with information gathered from interview"""
+    deal_ref = db.collection('deals').document(deal_id)
+    
+    updates = {}
+    
+    # Map gathered info back to memo structure
+    for field_key, field_data in gathered_info.items():
+        if field_key.startswith('current_arr'):
+            if isinstance(field_data, dict) and 'value' in field_data:
+                updates['memo.draft_v1.financials.arr_mrr.current_booked_arr'] = field_data['value']
+        elif field_key.startswith('current_mrr'):
+            if isinstance(field_data, dict) and 'value' in field_data:
+                updates['memo.draft_v1.financials.arr_mrr.current_mrr'] = field_data['value']
+        elif field_key.startswith('burn_rate'):
+            if isinstance(field_data, dict) and 'value' in field_data:
+                updates['memo.draft_v1.financials.burn_and_runway.implied_net_burn'] = field_data['value']
+        elif field_key.startswith('runway'):
+            if isinstance(field_data, dict) and 'value' in field_data:
+                updates['memo.draft_v1.financials.burn_and_runway.stated_runway'] = field_data['value']
+        elif field_key == 'funding_history':
+            if isinstance(field_data, dict) and 'value' in field_data:
+                updates['memo.draft_v1.financials.funding_history'] = field_data['value']
+        # Add more mappings as needed
+    
+    if updates:
+        try:
+            deal_ref.update(updates)
+            print(f"✅ Updated {len(updates)} fields in memo for deal {deal_id}")
+        except Exception as e:
+            print(f"❌ Error updating memo: {str(e)}")
+            # Store in separate field if direct update fails
+            deal_ref.update({
+                'interview.memo_updates_pending': updates
+            })

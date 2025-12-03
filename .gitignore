@@ -7,7 +7,8 @@ Backend/*.db
 Backend/uploads/
 Backend/deploy.ps1
 Backend/Dockerfile
-Backend/hackathon-472304-firebase-adminsdk-fbsvc-37baa00787.json
+Backend/*.json
+Backend/secrets.ps1
 
 # ========== FRONTEND ==========
 Frontend/node_modules/

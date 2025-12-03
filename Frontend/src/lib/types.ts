@@ -193,6 +193,7 @@ export type Metadata = {
   error: string | null;
   status: string;
   processed_at: string;
+  processing_mode?: 'fast' | 'research';
   weightage: {
     claim_credibility: number;
     financial_health: number;
@@ -240,11 +241,7 @@ export type AnalysisData = {
     audio_pitch_deck_url?: string;
     text_pitch_deck_url?: string;
   };
-  extracted_text?: any;
-  metadata: Metadata;
-  public_data: PublicData;
-  id: string;
-  interview?: Interview;
+  timestamp: string;
 };
 
 export type ChatMessage = {
