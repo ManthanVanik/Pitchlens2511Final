@@ -8,7 +8,6 @@ Backend/uploads/
 Backend/deploy.ps1
 Backend/Dockerfile
 Backend/*.json
-Backend/secrets.ps1
 
 # ========== FRONTEND ==========
 Frontend/node_modules/

@@ -37,9 +37,18 @@ Write-Host ""
 # IMPORTANT: Update FRONTEND_URL after deploying the frontend!
 $FRONTEND_URL = "https://pitchlens-frontend-wehui2z6iq-uc.a.run.app"
 
-# Load secrets if file exists
-if (Test-Path "secrets.ps1") {
-    . .\secrets.ps1
+# Load .env file if it exists
+if (Test-Path ".env") {
+    Get-Content ".env" | ForEach-Object {
+        if ($_ -match '^([^#=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            [System.Environment]::SetEnvironmentVariable($name, $value, [System.EnvironmentVariableTarget]::Process)
+        }
+    }
+    Write-Host "Loaded environment variables from .env" -ForegroundColor Green
+} else {
+    Write-Warning ".env file not found. Ensure environment variables are set."
 }
 
 # Check for required environment variables
